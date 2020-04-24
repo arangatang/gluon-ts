@@ -13,7 +13,7 @@
 
 import pytest
 import sys
-
+from flaky import flaky
 from gluonts.model.wavenet import WaveNetEstimator
 
 
@@ -37,10 +37,26 @@ def hyperparameters(dsinfo):
     sys.platform == "win32", reason="test times out for some reason"
 )
 @pytest.mark.parametrize("hybridize", [True, False])
-def test_accuracy(accuracy_test, hyperparameters, hybridize):
-    hyperparameters.update(num_batches_per_epoch=10, hybridize=hybridize)
+@pytest.mark.timeout(120)
+def test_accuracy_synthetic(accuracy_test, hyperparameters, hybridize, dsinfo):
+    # this allows us to handle the non flaky synthetic values and run these fast
+    if dsinfo.name != "synthetic":
+        return
 
+    hyperparameters.update(num_batches_per_epoch=10, hybridize=hybridize)
+    accuracy_test(WaveNetEstimator, hyperparameters, accuracy=0.7)
+
+@pytest.mark.parametrize("hybridize", [True, False])
+@pytest.mark.timeout(120)
+@flaky(max_runs=9, min_passes=5)
+def test_accuracy_constant(accuracy_test, hyperparameters, hybridize, dsinfo):
+    # this allows us to handle the flaky constant datasets
+    if dsinfo.name != "constant":
+        return
+    
+    hyperparameters.update(num_batches_per_epoch=10, hybridize=hybridize)
     # large value as this test is breaking frequently
+    # value is most often ~0.6-0.71 but occasionally reaches 1.04
     accuracy_test(WaveNetEstimator, hyperparameters, accuracy=0.7)
 
 

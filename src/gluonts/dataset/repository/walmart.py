@@ -22,7 +22,7 @@ from gluonts.dataset.repository._util import metadata, save_to_file
 # TODO implement the system here
 def generate_walmart_dataset(
     dataset_path: Path, pandas_freq: str, prediction_length: int
-): 
+):
     def load_dataset(dataset_path):
         train_path = dataset_path / "train.csv"
 
@@ -54,38 +54,44 @@ def generate_walmart_dataset(
 
     def generate_timeseries_data(df):
         ds = []
-        df['Date'] = pd.to_datetime(df['Date'])
-        df = df.sort_values(['Store','Dept','Date'])
+        df["Date"] = pd.to_datetime(df["Date"])
+        df = df.sort_values(["Store", "Dept", "Date"])
         for store in df["Store"].unique():
             store_df = df.loc[df["Store"] == store]
 
             for dept in store_df["Dept"].unique():
                 dept_df = store_df.loc[store_df["Dept"] == dept]
                 # calc cat_features of timeseries
-                
+
                 cat_features = [
                     int(store),
                     int(dept),
                     dept_df[["Type"]].values[0][0],
                     int(dept_df[["Size"]].values[0][0]),
                 ]
-                dept_df = dept_df.drop(['Type','Size','Dept','Store'], axis=1)
-                
+                dept_df = dept_df.drop(
+                    ["Type", "Size", "Dept", "Store"], axis=1
+                )
+
                 # insert rows of NaN for missing dates
                 start_date = dept_df.iloc[0]["Date"]
                 end_date = dept_df.iloc[-1]["Date"]
-                
+
                 # calc all days between start and end
                 dates = pd.date_range(start=start_date, end=end_date, freq="D")
                 times = pd.DataFrame({"Date": pd.to_datetime(dates)})
-                dept_df = times.merge(dept_df, on="Date", how="left").drop(['Date'], axis=1).T
-            
+                dept_df = (
+                    times.merge(dept_df, on="Date", how="left")
+                    .drop(["Date"], axis=1)
+                    .T
+                )
+
                 # calc target
                 target = dept_df.loc["Weekly_Sales"].to_numpy()
 
                 # calc dynamic variables
-                dyn_features = dept_df.drop(['Weekly_Sales']).to_numpy()
-                
+                dyn_features = dept_df.drop(["Weekly_Sales"]).to_numpy()
+
                 ts = (
                     target,
                     f"{start_date} 00:00:00",
@@ -111,7 +117,7 @@ def generate_walmart_dataset(
         )
         path = dataset_path / ds_name / "data.json"
         save_to_file(path, ds)
-    
+
     df = load_dataset(dataset_path)
     create_metadata_file(df, pandas_freq, prediction_length, dataset_path)
 
@@ -120,9 +126,8 @@ def generate_walmart_dataset(
     create_dataset_file(timeseries_data, cut=prediction_length)
 
 
-if __name__ == '__main__':
-    pandas_freq = 'D'
+if __name__ == "__main__":
+    pandas_freq = "D"
     dataset_path = Path("/Users/freccero/.mxnet/gluon-ts/datasets/walmart")
     prediction_length = 7
     generate_walmart_dataset(dataset_path, pandas_freq, prediction_length)
-

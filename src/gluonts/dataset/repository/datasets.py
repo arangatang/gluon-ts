@@ -108,8 +108,8 @@ dataset_recipes = OrderedDict(
         ),
         "walmart": partial(
             generate_walmart_dataset, 
-            pandas_freq="W", 
-            prediction_length=13 #TODO decide of a good number here
+            pandas_freq="D", 
+            prediction_length=7 #TODO decide of a good number here
         ),
     }
 )

@@ -112,8 +112,7 @@ class Evaluator(BaseModel):
         `np.ma.core.MaskedConstant`.
     """
 
-    default_quantiles = 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9
-    quantiles: Iterable[Union[float, str]] = default_quantiles
+    quantiles: Iterable[Quantile] = []
     seasonality: Optional[int] = None
     alpha: float = 0.05
     calculate_owa: bool = False
@@ -124,7 +123,11 @@ class Evaluator(BaseModel):
     nan_if_masked_timeseries: Optional[bool] = True
 
     @validator("quantiles")
-    def set_quantiles(cls, value):
+    def set_quantiles(
+        cls, value: Iterable[Union[float, str]]
+    ) -> Tuple[Quantile, ...]:
+        if not value:
+            value = 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9
         return tuple(map(Quantile.parse, value))
 
     def __call__(
@@ -457,7 +460,7 @@ class MultivariateEvaluator(Evaluator):
             and forecast (typically sum or mean).
     """
 
-    eval_dims: List[int] = None
+    eval_dims: Optional[List[int]] = None
     target_agg_funcs: Dict[str, Callable] = {}
 
     @staticmethod

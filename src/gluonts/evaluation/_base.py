@@ -11,6 +11,7 @@
 # express or implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
+from collections import defaultdict
 import logging
 import multiprocessing
 import sys
@@ -30,6 +31,7 @@ from typing import (
 
 import numpy as np
 import pandas as pd
+from pydantic.class_validators import validator
 import toolz
 
 from .metrics import (
@@ -48,6 +50,7 @@ from .metrics import (
 )
 from gluonts.gluonts_tqdm import tqdm
 from gluonts.model.forecast import Forecast, Quantile
+from pydantic import BaseModel
 
 
 def nan_if_masked(a: Union[float, np.ma.core.MaskedConstant]) -> float:
@@ -59,7 +62,7 @@ def worker_function(evaluator: "Evaluator", inp: tuple):
     return evaluator.get_metrics_per_ts(ts, forecast)
 
 
-class Evaluator:
+class Evaluator(BaseModel):
     """
     Evaluator class, to compute accuracy metrics by comparing observations
     to forecasts.
@@ -110,28 +113,19 @@ class Evaluator:
     """
 
     default_quantiles = 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9
+    quantiles: Iterable[Union[float, str]] = default_quantiles
+    seasonality: Optional[int] = None
+    alpha: float = 0.05
+    calculate_owa: bool = False
+    custom_eval_fn: Optional[Dict] = None
+    num_workers: Optional[int] = multiprocessing.cpu_count()
+    chunk_size: int = 32
+    mask_invalid_timeseries: Optional[bool] = True
+    nan_if_masked_timeseries: Optional[bool] = True
 
-    def __init__(
-        self,
-        quantiles: Iterable[Union[float, str]] = default_quantiles,
-        seasonality: Optional[int] = None,
-        alpha: float = 0.05,
-        calculate_owa: bool = False,
-        custom_eval_fn: Optional[Dict] = None,
-        num_workers: Optional[int] = multiprocessing.cpu_count(),
-        chunk_size: int = 32,
-        mask_invalid_timeseries: Optional[bool] = True,
-        nan_if_masked_timeseries: Optional[bool] = True,
-    ) -> None:
-        self.quantiles = tuple(map(Quantile.parse, quantiles))
-        self.seasonality = seasonality
-        self.alpha = alpha
-        self.calculate_owa = calculate_owa
-        self.custom_eval_fn = custom_eval_fn
-        self.num_workers = num_workers
-        self.chunk_size = chunk_size
-        self.mask_invalid_timeseries = mask_invalid_timeseries
-        self.nan_if_masked_timeseries = nan_if_masked_timeseries
+    @validator("quantiles")
+    def set_quantiles(cls, value):
+        return tuple(map(Quantile.parse, value))
 
     def __call__(
         self,
@@ -439,6 +433,9 @@ class MultivariateEvaluator(Evaluator):
 
     The evaluation dimensions can be set by the user.
 
+    This class shares parameters with those of the Evaluator class in addition
+    to those detailed below.
+
     Example:
         {'0_MSE': 0.004307240342677687, # MSE of dimension 0
         '0_abs_error': 1.6246897801756859,
@@ -449,51 +446,19 @@ class MultivariateEvaluator(Evaluator):
         'm_sum_MSE': 0.02 # MSE of aggregated target and aggregated forecast
         (if target_agg_funcs is set).
         'm_sum_abs_error': 4.2}
-    """
 
-    def __init__(
-        self,
-        quantiles: Iterable[Union[float, str]] = np.linspace(0.1, 0.9, 9),
-        seasonality: Optional[int] = None,
-        alpha: float = 0.05,
-        eval_dims: List[int] = None,
-        target_agg_funcs: Dict[str, Callable] = {},
-        custom_eval_fn: Optional[dict] = None,
-        num_workers: Optional[int] = None,
-    ) -> None:
-        """
-
-        Parameters
+    Parameters
         ----------
-        quantiles
-            list of strings of the form 'p10' or floats in [0, 1] with the
-            quantile levels
-        seasonality
-            seasonality to use for seasonal_error, if nothing is passed uses
-            the default seasonality for the given series frequency as
-            returned by `get_seasonality`
-        alpha
-            parameter of the MSIS metric that defines the CI,
-            e.g., for alpha=0.05 the 95% CI is considered in the metric.
         eval_dims
             dimensions of the target that will be evaluated.
         target_agg_funcs
             pass key-value pairs that define aggregation functions over the
             dimension axis. Useful to compute metrics over aggregated target
             and forecast (typically sum or mean).
-        num_workers
-            The number of multiprocessing workers that will be used to process
-            metric for each dimension of the multivariate forecast.
-        """
-        super().__init__(
-            quantiles=quantiles,
-            seasonality=seasonality,
-            alpha=alpha,
-            custom_eval_fn=custom_eval_fn,
-            num_workers=num_workers,
-        )
-        self._eval_dims = eval_dims
-        self.target_agg_funcs = target_agg_funcs
+    """
+
+    eval_dims: List[int] = None
+    target_agg_funcs: Dict[str, Callable] = {}
 
     @staticmethod
     def extract_target_by_dim(
@@ -541,8 +506,8 @@ class MultivariateEvaluator(Evaluator):
 
     def get_eval_dims(self, target_dimensionality: int) -> List[int]:
         eval_dims = (
-            self._eval_dims
-            if self._eval_dims is not None
+            self.eval_dims
+            if self.eval_dims is not None
             else list(range(0, target_dimensionality))
         )
         assert max(eval_dims) < target_dimensionality, (
